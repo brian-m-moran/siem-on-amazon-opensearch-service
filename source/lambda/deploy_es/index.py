@@ -37,6 +37,7 @@ s3_client = boto3.resource('s3')
 
 accountid = os.environ['accountid']
 region = os.environ['AWS_REGION']
+partition = os.environ['partition']
 aesdomain = os.getenv('aes_domain_name')
 myaddress = os.getenv('allow_source_address', '').split()
 aes_admin_role = os.getenv('aes_admin_role')
@@ -58,7 +59,7 @@ LOGGROUP_RETENTIONS = [
 ]
 
 es_loader_ec2_role = (
-    f'arn:aws:iam::{accountid}:role/aes-siem-es-loader-for-ec2')
+    f'arn:{partition}:iam::{accountid}:role/aes-siem-es-loader-for-ec2')
 
 cwl_resource_policy = {
     'Version': "2012-10-17",
@@ -72,9 +73,9 @@ cwl_resource_policy = {
                 'logs:CreateLogGroup'
             ],
             'Resource': [
-                (f'arn:aws:logs:{region}:{accountid}:log-group:/aws/'
+                (f'arn:{partition}:logs:{region}:{accountid}:log-group:/aws/'
                  f'OpenSearchService/domains/{aesdomain}/*'),
-                (f'arn:aws:logs:{region}:{accountid}:log-group:/aws/'
+                (f'arn:{partition}:logs:{region}:{accountid}:log-group:/aws/'
                  f'OpenSearchService/domains/{aesdomain}/*:*')
             ]
         }
@@ -88,14 +89,14 @@ access_policies = {
             'Effect': 'Allow',
             'Principal': {'AWS': myiamarn},
             'Action': ['es:*'],
-            'Resource': f'arn:aws:es:{region}:{accountid}:domain/{aesdomain}/*'
+            'Resource': f'arn:{partition}:es:{region}:{accountid}:domain/{aesdomain}/*'
         },
         {
             'Effect': 'Allow',
             'Principal': {'AWS': '*'},
             'Action': ['es:*'],
             'Condition': {'IpAddress': {'aws:SourceIp': myaddress}},
-            'Resource': f'arn:aws:es:{region}:{accountid}:domain/{aesdomain}/*'
+            'Resource': f'arn:{partition}:es:{region}:{accountid}:domain/{aesdomain}/*'
         }
     ]
 }
@@ -157,7 +158,7 @@ config_domain = {
     'LogPublishingOptions': {
         'ES_APPLICATION_LOGS': {
             'CloudWatchLogsLogGroupArn': (
-                f'arn:aws:logs:{region}:{accountid}:log-group:/aws/'
+                f'arn:{partition}:logs:{region}:{accountid}:log-group:/aws/'
                 f'OpenSearchService/domains/{aesdomain}/application-logs'),
             'Enabled': True
         }
@@ -685,10 +686,14 @@ def aes_domain_delete(event, context):
     response = cwe_client.list_rules(NamePrefix='AesSiemDomainDeployed')
     for rule in response['Rules']:
         rule_name = rule['Name']
-        cwe_client.remove_targets(Rule=rule_name, Ids=['1', ])
-        cwe_client.delete_rule(Name=rule_name)
-        logger.info(f"Delete CWE {rule_name} created by crhelper")
-
+        #add try because received 'Rule does not exist on EventBus default' error
+        try:
+            cwe_client.remove_targets(Rule=rule_name, Ids=['1', ])
+            cwe_client.delete_rule(Name=rule_name)
+            logger.info(f"Delete CWE {rule_name} created by crhelper")
+        except Exception as err:
+            logging.error('failed to remove target' + rule_name)
+            logging.error(err)
 
 def aes_config_handler(event, context):
     if 'ResourceType' in event \
