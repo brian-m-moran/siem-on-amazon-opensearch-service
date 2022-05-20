@@ -372,7 +372,7 @@ class MyAesSiemStack(core.Stack):
             resources=['*'],
             conditions={'StringLike': {
                 'kms:EncryptionContext:aws:cloudtrail:arn': [
-                    f'arn:aws:cloudtrail:*:{core.Aws.ACCOUNT_ID}:trail/*']}})
+                    f'arn:{core.Aws.PARTITION}:cloudtrail:*:{core.Aws.ACCOUNT_ID}:trail/*']}})
         kms_aes_siem.add_to_resource_policy(key_policy_trail2)
 
         ######################################################################
@@ -409,7 +409,7 @@ class MyAesSiemStack(core.Stack):
         # IAM Role
         ######################################################################
         # delopyment policy for lambda deploy-aes
-        arn_prefix = f'arn:aws:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}'
+        arn_prefix = f'arn:{core.Aws.PARTITION}:logs:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}'
         loggroup_aes = f'log-group:/aws/aes/domains/{aes_domain_name}/*'
         loggroup_opensearch = (
             f'log-group:/aws/OpenSearchService/domains/{aes_domain_name}/*')
@@ -698,6 +698,7 @@ class MyAesSiemStack(core.Stack):
             environment={
                 'accountid': core.Aws.ACCOUNT_ID,
                 'aes_domain_name': aes_domain_name,
+                'partition': core.Aws.PARTITION,
                 'aes_admin_role': aes_siem_deploy_role_for_lambda.role_arn,
                 'allow_source_address': allow_source_address.value_as_string,
             },
@@ -748,6 +749,7 @@ class MyAesSiemStack(core.Stack):
             timeout=core.Duration.seconds(300),
             environment={
                 'accountid': core.Aws.ACCOUNT_ID,
+                'partition': core.Aws.PARTITION,
                 'aes_domain_name': aes_domain_name,
                 'aes_admin_role': aes_siem_deploy_role_for_lambda.role_arn,
                 'es_loader_role': lambda_es_loader.role.role_arn,
@@ -779,7 +781,7 @@ class MyAesSiemStack(core.Stack):
         aes_config.add_depends_on(aes_domain)
         aes_config.cfn_options.deletion_policy = core.CfnDeletionPolicy.RETAIN
 
-        es_arn = (f'arn:aws:es:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}'
+        es_arn = (f'arn:{core.Aws.PARTITION}:es:{core.Aws.REGION}:{core.Aws.ACCOUNT_ID}'
                   f':domain/{aes_domain_name}')
         # grant permission to es_loader role
         inline_policy_to_load_entries_into_es = aws_iam.Policy(
@@ -833,8 +835,8 @@ class MyAesSiemStack(core.Stack):
         if additional_buckets:
             buckets_list = []
             for bucket in additional_buckets:
-                buckets_list.append(f'arn:aws:s3:::{bucket}')
-                buckets_list.append(f'arn:aws:s3:::{bucket}/*')
+                buckets_list.append(f'arn:{core.Aws.PARTITION}:s3:::{bucket}')
+                buckets_list.append(f'arn:{core.Aws.PARTITION}:s3:::{bucket}/*')
             inline_policy_access_to_additional_buckets = aws_iam.Policy(
                 self, 'access_to_additional_buckets',
                 policy_name='access_to_additional_buckets',
@@ -998,16 +1000,21 @@ class MyAesSiemStack(core.Stack):
             ##################################################################
             # for CloudTrail
             cond_tail2 = self.make_resource_list(
-                path='arn:aws:cloudtrail:*:', tail=':trail/*',
+                path='arn:' + core.Aws.PARTITION + ':cloudtrail:*:', tail=':trail/*',
                 keys=self.list_without_none(org_mgmt_id, no_org_ids))
+            key_context = core.CfnJson(
+                self, 'JsonCondition',
+                value={f'kms:EncryptionContext:{core.Aws.PARTITION}:cloudtrail:arn': cond_tail2}
+            )
             key_policy_mul_trail2 = aws_iam.PolicyStatement(
                 sid=('Allow CloudTrail to encrypt logs for multiaccounts'),
                 actions=['kms:GenerateDataKey*'],
                 principals=[aws_iam.ServicePrincipal(
                     'cloudtrail.amazonaws.com')],
                 resources=['*'],
-                conditions={'StringLike': {
-                    'kms:EncryptionContext:aws:cloudtrail:arn': cond_tail2}})
+                conditions={'StringLike': key_context})
+#                    key_context : cond_tail2}})
+                    #'kms:EncryptionContext:aws:cloudtrail:arn': cond_tail2}})
             kms_aes_siem.add_to_resource_policy(key_policy_mul_trail2)
 
             # for replicaiton
@@ -1023,7 +1030,7 @@ class MyAesSiemStack(core.Stack):
             ##################################################################
             # Buckdet Policy for multiaccount / organizaitons
             ##################################################################
-            s3_log_bucket_arn = 'arn:aws:s3:::' + s3bucket_name_log
+            s3_log_bucket_arn = 'arn:' + core.Aws.PARTITION + ':s3:::' + s3bucket_name_log
 
             # for CloudTrail
             s3_mulpaths = self.make_resource_list(
